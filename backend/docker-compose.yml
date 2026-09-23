@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: commutr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: commutr_db
+      POSTGRES_USER: commutr
+      POSTGRES_PASSWORD: commutr_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

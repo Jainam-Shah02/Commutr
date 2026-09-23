@@ -1,0 +1,41 @@
+# Flutter generated files
+commutr/.dart_tool/
+commutr/build/
+commutr/.flutter-plugins
+commutr/.flutter-plugins-dependencies
+commutr/.packages
+
+# Flutter IDE
+commutr/.idea/
+commutr/*.iml
+
+# Android generated files
+commutr/android/.gradle/
+commutr/android/app/build/
+commutr/android/build/
+commutr/android/local.properties
+
+# Backend generated files
+backend/.gradle/
+backend/build/
+backend/target/
+
+# Figma/React generated files
+figma1/node_modules/
+figma1/dist/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Java
+*.class
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/

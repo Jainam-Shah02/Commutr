@@ -1,0 +1,10 @@
+{
+  "description": "Analyzes uploaded files to extract key insights and implement solutions, streamlining workflows for professionals seeking efficient data understanding.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

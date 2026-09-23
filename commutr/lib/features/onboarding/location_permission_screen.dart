@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/routing/app_routes.dart';
+import '../../services/transit_provider.dart';
 
 class LocationPermissionScreen extends StatelessWidget {
   const LocationPermissionScreen({super.key});
@@ -45,7 +47,7 @@ class LocationPermissionScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Location helps us estimate bus movement and arrival times. Your location is used only with your permission.',
+                      'Commutr uses your location to find nearby bus stops and help track buses.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppColors.textSecondary,
@@ -72,7 +74,7 @@ class LocationPermissionScreen extends StatelessWidget {
                           SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              'You can stop location sharing anytime from your profile settings.',
+                              'You can stop location sharing anytime from your profile settings. Manual search is always available.',
                               style: TextStyle(
                                 color: AppColors.textSecondary,
                                 fontSize: 13,
@@ -92,10 +94,17 @@ class LocationPermissionScreen extends StatelessWidget {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pushReplacementNamed(
-                        context,
-                        AppRoutes.home,
-                      ),
+                      onPressed: () async {
+                        try {
+                          await context.read<TransitProvider>().requestLocationPermission();
+                        } catch (_) {}
+                        if (context.mounted) {
+                          Navigator.pushReplacementNamed(
+                            context,
+                            AppRoutes.home,
+                          );
+                        }
+                      },
                       child: const Text('Allow Location'),
                     ),
                   ),

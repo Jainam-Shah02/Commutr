@@ -6,8 +6,8 @@ void main() {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const CommutrApp());
 
-    // Verify onboarding screen is presented
-    expect(find.text('SMARTCROWD TRANSIT'), findsOneWidget);
-    expect(find.text('Get Started'), findsOneWidget);
+    // Verify login / onboarding screen is presented
+    expect(find.text('COMMUTR'), findsOneWidget);
+    expect(find.text('Continue with Google'), findsOneWidget);
   });
 }

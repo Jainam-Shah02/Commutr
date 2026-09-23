@@ -7,6 +7,7 @@ import '../../models/transit_stop.dart';
 import '../../services/transit_provider.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/transit_map.dart';
 
 class BusDetailsScreen extends StatefulWidget {
   const BusDetailsScreen({super.key});
@@ -17,6 +18,7 @@ class BusDetailsScreen extends StatefulWidget {
 
 class _BusDetailsScreenState extends State<BusDetailsScreen> {
   bool _notified = false;
+  bool _followBus = true;
 
   @override
   Widget build(BuildContext context) {
@@ -24,13 +26,13 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
     final busState = transit.busState;
     final selectedRoute = transit.selectedRoute;
     final serviceStatus = transit.serviceStatus;
-    final trackingSource = transit.trackingSource;
+    final isTravelling = transit.trackingMode == TrackingMode.travelling;
 
     final currentStopIndex = selectedRoute.stops.indexWhere((s) => s.id == busState?.currentStopId);
     final currentStop = currentStopIndex >= 0 ? selectedRoute.stops[currentStopIndex] : selectedRoute.stops.first;
     final nextStop = selectedRoute.stops.firstWhere(
       (s) => s.id == busState?.nextStopId,
-      orElse: () => selectedRoute.stops[1],
+      orElse: () => selectedRoute.stops.length > 1 ? selectedRoute.stops[1] : selectedRoute.stops.first,
     );
 
     return Scaffold(
@@ -38,151 +40,204 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
       appBar: AppHeader(
         title: '${selectedRoute.operator} ${selectedRoute.routeNumber}',
         subtitle: selectedRoute.name,
-        trailing: Container(
-          margin: const EdgeInsets.only(right: 4),
-          child: StatusBadge.fromServiceStatus(serviceStatus),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.report_problem_outlined, size: 20, color: AppColors.warning),
+              tooltip: 'Report Issue',
+              onPressed: () => Navigator.pushNamed(context, AppRoutes.reportProblem),
+            ),
+            Container(
+              margin: const EdgeInsets.only(right: 4),
+              child: const StatusBadge(
+                label: 'LIVE',
+                backgroundColor: AppColors.successLight,
+                textColor: AppColors.success,
+                icon: Icons.sensors,
+              ),
+            ),
+          ],
         ),
       ),
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // ETA & Status Card
+            // -------------------------------------------------------------
+            // 1. Top Section: ETA, Speeds, Crowd Status
+            // -------------------------------------------------------------
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: busState != null
-                  ? Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.border),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Estimated arrival',
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    serviceStatus == ServiceStatus.confirmedDisruption
-                                        ? 'Delayed'
-                                        : '${busState.etaMinutes} min',
-                                    style: TextStyle(
-                                      color: serviceStatus == ServiceStatus.confirmedDisruption
-                                          ? AppColors.danger
-                                          : AppColors.primaryBlue,
-                                      fontSize: 32,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: -0.8,
-                                    ),
-                                  ),
-                                ],
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.02),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    // Arrival & Next Stop Row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Estimated arrival',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
                               ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  const Text(
-                                    'Current area',
-                                    style: TextStyle(
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              serviceStatus == ServiceStatus.confirmedDisruption
+                                  ? 'Delayed'
+                                  : busState != null
+                                      ? '${busState.etaMinutes} min'
+                                      : '3 min',
+                              style: TextStyle(
+                                color: serviceStatus == ServiceStatus.confirmedDisruption
+                                    ? AppColors.danger
+                                    : AppColors.primaryBlue,
+                                fontSize: 30,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.8,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text(
+                              'Next Stop',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              nextStop.name,
+                              style: const TextStyle(
+                                color: AppColors.primaryBlue,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            Text(
+                              'From: ${currentStop.name}',
+                              style: const TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    const Divider(height: 22, color: AppColors.border),
+
+                    // Telemetry & Crowd Row
+                    Row(
+                      children: [
+                        const Icon(Icons.speed_rounded, size: 16, color: AppColors.primaryBlue),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Bus Speed: ${transit.busSpeedKmh.toStringAsFixed(0)} km/h',
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryBlueLight,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            busState?.occupancy.displayText ?? 'Seats Available',
+                            style: const TextStyle(
+                              color: AppColors.primaryBlue,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Confidence Level & Contributor Count Pill
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: transit.isPassengerSignalReliable
+                            ? AppColors.successLight
+                            : AppColors.warning.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.verified_user_rounded,
+                            size: 14,
+                            color: transit.isPassengerSignalReliable
+                                ? AppColors.success
+                                : AppColors.warning,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${transit.confidenceLevelLabel} Confidence',
+                            style: TextStyle(
+                              color: transit.isPassengerSignalReliable
+                                  ? AppColors.success
+                                  : AppColors.warning,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 3,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: AppColors.textSecondary.withValues(alpha: 0.6),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.people_alt_rounded, size: 13, color: AppColors.textSecondary),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    transit.confidencePeopleDescription,
+                                    style: const TextStyle(
                                       color: AppColors.textSecondary,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    currentStop.name,
-                                    style: const TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Next: ${nextStop.name}',
-                                    style: const TextStyle(
-                                      color: AppColors.primaryBlue,
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const Divider(height: 24),
-                          Row(
-                            children: [
-                              StatusBadge.fromConfidence(busState.confidence),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Updated ${busState.lastUpdatedSec}s ago',
-                                style: const TextStyle(
-                                  color: AppColors.textMuted,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const Spacer(),
-                              Text(
-                                busState.occupancy.displayText,
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    )
-                  : Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFFCD34D)),
-                      ),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 24),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Live bus location unavailable',
-                                  style: TextStyle(
-                                    color: AppColors.warning,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                SizedBox(height: 2),
-                                Text(
-                                  'Showing scheduled departure: 10:25 AM. Live tracking activates with passenger signals.',
-                                  style: TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ],
@@ -191,91 +246,253 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
                         ],
                       ),
                     ),
+
+                    // Passenger Telemetry Comparison Card if Travelling Onboard
+                    if (isTravelling) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Estimated bus speed',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Text(
+                                  '${transit.busSpeedKmh.toStringAsFixed(0)} km/h',
+                                  style: const TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Your speed',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Text(
+                                  '${transit.effectiveUserSpeedKmh.toStringAsFixed(0)} km/h',
+                                  style: const TextStyle(
+                                    color: AppColors.primaryBlue,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Tracking confidence',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Text(
+                                  transit.trackingConfidenceText,
+                                  style: TextStyle(
+                                    color: transit.isPassengerSignalReliable
+                                        ? AppColors.success
+                                        : AppColors.warning,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Active passengers',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.people_alt_rounded, size: 14, color: AppColors.primaryBlue),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${transit.activePassengerContributorsCount} people on board',
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
 
-            // Disruption / Detour Alert Message
-            if (busState?.disruptionMessage != null) ...[
-              Container(
-                margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                padding: const EdgeInsets.all(12),
+            // -------------------------------------------------------------
+            // 2. Main Section: REAL MAP (flutter_map / OpenStreetMap)
+            // -------------------------------------------------------------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Container(
+                height: 290,
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  color: serviceStatus == ServiceStatus.confirmedDisruption
-                      ? AppColors.dangerLight
-                      : AppColors.warningLight,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: serviceStatus == ServiceStatus.confirmedDisruption
-                        ? const Color(0xFFFCA5A5)
-                        : const Color(0xFFFCD34D),
-                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.border, width: 1.2),
                 ),
-                child: Row(
+                child: Stack(
                   children: [
-                    Icon(
-                      serviceStatus == ServiceStatus.confirmedDisruption
-                          ? Icons.error_outline
-                          : Icons.warning_amber_rounded,
-                      color: serviceStatus == ServiceStatus.confirmedDisruption
-                          ? AppColors.danger
-                          : AppColors.warning,
-                      size: 20,
+                    TransitMap(
+                      route: selectedRoute,
+                      bus: busState,
+                      stops: selectedRoute.stops,
+                      userLocation: transit.userPosition,
+                      destinationStopId: transit.destinationStopId,
+                      followBus: _followBus,
+                      onFollowBusChanged: (val) {
+                        setState(() => _followBus = val);
+                      },
+                      activePolyline: transit.activePolyline,
+                      serviceStatus: serviceStatus,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        busState!.disruptionMessage!,
-                        style: TextStyle(
-                          color: serviceStatus == ServiceStatus.confirmedDisruption
-                              ? AppColors.danger
-                              : AppColors.warning,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                    // Map Overlay: Follow Bus Toggle
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: IconButton(
+                          icon: Icon(
+                            _followBus ? Icons.gps_fixed : Icons.gps_not_fixed,
+                            color: _followBus ? AppColors.primaryBlue : AppColors.textMuted,
+                            size: 20,
+                          ),
+                          tooltip: 'Follow Bus',
+                          onPressed: () => setState(() => _followBus = !_followBus),
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
+            ),
 
-            // Sensor Origin Telemetry Explanation
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: trackingSource == TrackingSource.driver
-                    ? AppColors.successLight
-                    : AppColors.primaryBlueLight,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: trackingSource == TrackingSource.driver
-                      ? const Color(0xFFBBF7D0)
-                      : const Color(0xFFBFDBFE),
-                ),
-              ),
+            // -------------------------------------------------------------
+            // 3. Tracking Mode Toggle & Actions
+            // -------------------------------------------------------------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
               child: Row(
                 children: [
-                  Icon(
-                    trackingSource == TrackingSource.driver
-                        ? Icons.badge_outlined
-                        : Icons.groups_outlined,
-                    size: 20,
-                    color: trackingSource == TrackingSource.driver
-                        ? AppColors.success
-                        : AppColors.primaryBlue,
-                  ),
-                  const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      trackingSource == TrackingSource.driver
-                          ? 'Driver Telemetry Active: Virtual position is anchored by the authorized operator smartphone.'
-                          : 'Crowdsourced Telemetry: Virtual bus position is verified from passenger trajectories.',
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(
+                          color: isTravelling ? AppColors.success : AppColors.primaryBlue,
+                          width: 1.2,
+                        ),
+                        backgroundColor: isTravelling ? AppColors.successLight : AppColors.surface,
+                      ),
+                      onPressed: () {
+                        if (isTravelling) {
+                          transit.setTrackingMode(TrackingMode.tracking);
+                        } else {
+                          transit.setTrackingMode(TrackingMode.travelling);
+                        }
+                      },
+                      icon: Icon(
+                        isTravelling ? Icons.check_circle_rounded : Icons.airline_seat_recline_normal_rounded,
+                        size: 18,
+                        color: isTravelling ? AppColors.success : AppColors.primaryBlue,
+                      ),
+                      label: Text(
+                        isTravelling ? "I'm on this bus" : "I'm travelling on this bus",
+                        style: TextStyle(
+                          color: isTravelling ? AppColors.success : AppColors.primaryBlue,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      side: const BorderSide(color: AppColors.border),
+                    ),
+                    onPressed: () {
+                      setState(() => _notified = !_notified);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(_notified
+                              ? 'Arrival alerts enabled for ${selectedRoute.operator} ${selectedRoute.routeNumber}.'
+                              : 'Arrival alerts disabled.'),
+                        ),
+                      );
+                    },
+                    child: Icon(
+                      _notified ? Icons.notifications_active : Icons.notifications_none,
+                      size: 20,
+                      color: _notified ? AppColors.primaryBlue : AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      side: const BorderSide(color: AppColors.border),
+                      backgroundColor: AppColors.surface,
+                    ),
+                    onPressed: () => Navigator.pushNamed(context, AppRoutes.reportProblem),
+                    icon: const Icon(Icons.report_problem_outlined, size: 18, color: AppColors.warning),
+                    label: const Text(
+                      'Report',
                       style: TextStyle(
-                        color: trackingSource == TrackingSource.driver
-                            ? const Color(0xFF166534)
-                            : AppColors.primaryBlueDark,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
                       ),
                     ),
                   ),
@@ -283,75 +500,62 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
               ),
             ),
 
-            const SizedBox(height: 16),
-
-            // Action Buttons
+            // Report Issue Quick Card
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => Navigator.pushNamed(context, AppRoutes.liveMap),
-                          icon: const Icon(Icons.map_outlined, size: 18),
-                          label: const Text('Live Map'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => Navigator.pushNamed(context, AppRoutes.boarding),
-                          icon: const Icon(Icons.airline_seat_recline_normal_rounded, size: 18),
-                          label: const Text('Did you board?'),
-                        ),
-                      ),
-                    ],
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: InkWell(
+                onTap: () => Navigator.pushNamed(context, AppRoutes.reportProblem),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
                   ),
-                  const SizedBox(height: 10),
-                  Row(
+                  child: Row(
                     children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: AppColors.warning.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.report_problem_rounded, color: AppColors.warning, size: 16),
+                      ),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setState(() => _notified = !_notified);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(_notified
-                                    ? 'Arrival notifications enabled for TMT 50.'
-                                    : 'Arrival notifications disabled.'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'Report an Issue with this Bus',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
                               ),
-                            );
-                          },
-                          icon: Icon(
-                            _notified ? Icons.notifications_active : Icons.notifications_none,
-                            size: 18,
-                            color: _notified ? AppColors.primaryBlue : AppColors.textSecondary,
-                          ),
-                          label: Text(_notified ? 'Notified' : 'Notify me'),
+                            ),
+                            SizedBox(height: 1),
+                            Text(
+                              'Unexpected stop, route breakdown, or road obstruction',
+                              style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => Navigator.pushNamed(context, AppRoutes.reportProblem),
-                          icon: const Icon(Icons.report_problem_outlined, size: 18, color: AppColors.danger),
-                          label: const Text(
-                            'Report problem',
-                            style: TextStyle(color: AppColors.danger),
-                          ),
-                        ),
-                      ),
+                      const Icon(Icons.arrow_forward_ios_rounded, color: AppColors.textMuted, size: 13),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // Stop-by-Stop Route Progress
+            // -------------------------------------------------------------
+            // 4. Bottom Section: Route Stop Timeline
+            // -------------------------------------------------------------
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Container(
@@ -371,7 +575,7 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
                           'Route Stops',
                           style: TextStyle(
                             color: AppColors.textPrimary,
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -398,7 +602,7 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
                         isPassed: isPassed,
                         isCurrent: isCurrent,
                         isNext: isNext,
-                        estimatedMinutes: (idx - (currentStopIndex >= 0 ? currentStopIndex : 0)) * 3,
+                        estimatedMinutes: (idx - (currentStopIndex >= 0 ? currentStopIndex : 0)).clamp(0, 50) * 3,
                       );
                     }),
                   ],

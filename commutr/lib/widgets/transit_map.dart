@@ -41,22 +41,68 @@ class TransitMap extends StatefulWidget {
 
 class _TransitMapState extends State<TransitMap> with TickerProviderStateMixin {
   late final MapController _mapController;
+  late final AnimationController _busAnimationController;
   bool _hasInitialFitted = false;
+
+  LatLng? _oldBusPos;
+  LatLng? _targetBusPos;
+  double _oldHeading = 0.0;
+  double _targetHeading = 0.0;
 
   @override
   void initState() {
     super.initState();
     _mapController = MapController();
+    _busAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 950),
+    );
+
+    if (widget.bus != null) {
+      _oldBusPos = LatLng(widget.bus!.latitude, widget.bus!.longitude);
+      _targetBusPos = _oldBusPos;
+      _oldHeading = widget.bus!.heading;
+      _targetHeading = widget.bus!.heading;
+    }
+  }
+
+  @override
+  void dispose() {
+    _busAnimationController.dispose();
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant TransitMap oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // If followBus is active and bus position changed, animate map camera to bus
-    if (widget.followBus && widget.bus != null) {
-      final busPt = LatLng(widget.bus!.latitude, widget.bus!.longitude);
-      _mapController.move(busPt, _mapController.camera.zoom);
+    if (widget.bus != null) {
+      final nextPos = LatLng(widget.bus!.latitude, widget.bus!.longitude);
+      if (_targetBusPos == null) {
+        _oldBusPos = nextPos;
+        _targetBusPos = nextPos;
+        _oldHeading = widget.bus!.heading;
+        _targetHeading = widget.bus!.heading;
+      } else if (_targetBusPos!.latitude != nextPos.latitude ||
+          _targetBusPos!.longitude != nextPos.longitude) {
+        final t = _busAnimationController.value;
+        final curLat = _oldBusPos!.latitude +
+            (_targetBusPos!.latitude - _oldBusPos!.latitude) * t;
+        final curLon = _oldBusPos!.longitude +
+            (_targetBusPos!.longitude - _oldBusPos!.longitude) * t;
+
+        _oldBusPos = LatLng(curLat, curLon);
+        _targetBusPos = nextPos;
+        _oldHeading = _targetHeading;
+        _targetHeading = widget.bus!.heading;
+        _busAnimationController.forward(from: 0.0);
+      }
+
+      // If followBus is active, animate camera
+      if (widget.followBus) {
+        final busPt = LatLng(widget.bus!.latitude, widget.bus!.longitude);
+        _mapController.move(busPt, _mapController.camera.zoom);
+      }
     }
 
     // If route changed, fit bounds to new route
@@ -271,55 +317,76 @@ class _TransitMapState extends State<TransitMap> with TickerProviderStateMixin {
                       ],
                     ),
                   ),
-
-                // Live Virtual Bus Marker
-                if (widget.bus != null)
-                  Marker(
-                    point: LatLng(widget.bus!.latitude, widget.bus!.longitude),
-                    width: 44,
-                    height: 44,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        // Pulsing outer aura
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.primaryBlue.withValues(alpha: 0.25),
-                          ),
-                        ),
-                        // Rotated bus icon oriented with road heading
-                        Transform.rotate(
-                          angle: widget.bus!.heading * (math.pi / 180.0),
-                          child: Container(
-                            width: 26,
-                            height: 26,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.primaryBlue,
-                              border: Border.all(color: Colors.white, width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.3),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              Icons.navigation_rounded,
-                              size: 15,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
               ],
             ),
+
+            // Live Virtual Bus Marker (Smoothly Animated 60fps)
+            if (widget.bus != null)
+              AnimatedBuilder(
+                animation: _busAnimationController,
+                builder: (context, _) {
+                  final t = _busAnimationController.value;
+                  final lat = (_oldBusPos != null && _targetBusPos != null)
+                      ? _oldBusPos!.latitude +
+                          (_targetBusPos!.latitude - _oldBusPos!.latitude) * t
+                      : widget.bus!.latitude;
+                  final lon = (_oldBusPos != null && _targetBusPos != null)
+                      ? _oldBusPos!.longitude +
+                          (_targetBusPos!.longitude - _oldBusPos!.longitude) * t
+                      : widget.bus!.longitude;
+                  final heading =
+                      _oldHeading + (_targetHeading - _oldHeading) * t;
+
+                  return MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: LatLng(lat, lon),
+                        width: 44,
+                        height: 44,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Pulsing outer aura
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: AppColors.primaryBlue.withValues(alpha: 0.25),
+                              ),
+                            ),
+                            // Rotated bus icon oriented with road heading
+                            Transform.rotate(
+                              angle: heading * (math.pi / 180.0),
+                              child: Container(
+                                width: 26,
+                                height: 26,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: AppColors.primaryBlue,
+                                  border: Border.all(color: Colors.white, width: 2),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.3),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.navigation_rounded,
+                                  size: 15,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
           ],
         ),
 

@@ -12,19 +12,61 @@ import 'route/eta_service.dart';
 import 'backend_transit_provider.dart';
 import 'realtime/transit_realtime_service.dart';
 
+enum TrackingMode {
+  tracking, // "I'm tracking this bus" - waiting for bus
+  travelling, // "I'm travelling on this bus" - onboard passenger
+}
+
+class RecentSearch {
+  final String from;
+  final String to;
+  final DateTime timestamp;
+
+  const RecentSearch({
+    required this.from,
+    required this.to,
+    required this.timestamp,
+  });
+}
+
 /// Central State Provider for Commutr Real-time Bus Tracking, Sensor Fusion & Route GIS
 class TransitProvider extends ChangeNotifier {
-  TransitRoute _selectedRoute = DemoDataService.routeTmt50;
+  TransitRoute _selectedRoute = DemoDataService.routeTmt65;
   bool _isSimulating = true;
   TrackingSource _trackingSource = TrackingSource.crowd;
   ServiceStatus _serviceStatus = ServiceStatus.normal;
   bool _followBus = true;
-  String _destinationStopId = 'stop-7'; // default: Manpada
+  String _destinationStopId = 'stop-we'; // default: Wagle Estate
   bool _driverModeActive = false;
   bool _isLiveAvailable = true;
-  int _coordIndex = 17; // Initial index near Majiwada Junction
-  int _lastUpdatedSec = 8;
+  int _coordIndex = 2; // Initial index along route
+  double _simulatedDistanceMeters = 300.0; // Continuous distance along polyline (meters)
+  int _lastUpdatedSec = 4;
   bool _passengerRideActive = false;
+  TrackingMode _trackingMode = TrackingMode.tracking;
+
+  // User Profile
+  String _userName = 'Jainam';
+  bool _isLoggedIn = true;
+
+  // Recent Searches
+  List<RecentSearch> _recentSearches = [
+    RecentSearch(
+      from: 'Teen Hath Naka',
+      to: 'Thane Station West',
+      timestamp: DateTime.now().subtract(const Duration(minutes: 15)),
+    ),
+    RecentSearch(
+      from: 'Mulund Check Naka',
+      to: 'Cadbury Junction',
+      timestamp: DateTime.now().subtract(const Duration(hours: 2)),
+    ),
+    RecentSearch(
+      from: 'Thane Station West',
+      to: 'Wagle Estate',
+      timestamp: DateTime.now().subtract(const Duration(hours: 5)),
+    ),
+  ];
 
   // Real vs Demo Location Management
   late final LocationService _realLocationService;
@@ -90,6 +132,115 @@ class TransitProvider extends ChangeNotifier {
   LocationPermissionState get permissionState => _permissionState;
   bool get useRealGpsForBus => _useRealGpsForBus;
 
+  // Passenger & User State
+  String get userName => _userName;
+  bool get isLoggedIn => _isLoggedIn;
+  TrackingMode get trackingMode => _trackingMode;
+  List<RecentSearch> get recentSearches => _recentSearches;
+
+  void loginWithGoogle({String name = 'Jainam'}) {
+    _userName = name;
+    _isLoggedIn = true;
+    notifyListeners();
+  }
+
+  void setTrackingMode(TrackingMode mode) {
+    _trackingMode = mode;
+    if (mode == TrackingMode.travelling) {
+      startPassengerRide();
+    } else {
+      stopPassengerRide();
+    }
+    notifyListeners();
+  }
+
+  void addRecentSearch(String from, String to) {
+    _recentSearches.removeWhere((s) => s.from == from && s.to == to);
+    _recentSearches.insert(
+      0,
+      RecentSearch(from: from, to: to, timestamp: DateTime.now()),
+    );
+    if (_recentSearches.length > 5) {
+      _recentSearches = _recentSearches.sublist(0, 5);
+    }
+    notifyListeners();
+  }
+
+  /// Finds the nearest bus stop to user's location
+  NearestStopResult getNearestStopForUser() {
+    final loc = userLocation;
+    return DemoDataService.findNearestStop(loc.latitude, loc.longitude);
+  }
+
+  /// Effective user speed in km/h. If travelling on bus in demo/simulated mode, returns
+  /// realistic passenger movement reading (e.g. 27.0 km/h) or actual GPS sensor speed.
+  double get effectiveUserSpeedKmh {
+    final posSpeed = _userPosition?.speedKmh;
+    if (posSpeed != null && posSpeed > 0) {
+      return posSpeed;
+    }
+    if (_trackingMode == TrackingMode.travelling) {
+      // In onboard mode, return passenger telemetry synced with bus speed
+      return (busSpeedKmh - 1.0).clamp(0.0, 100.0);
+    }
+    return 0.0;
+  }
+
+  /// Evaluates passenger GPS telemetry against bus movement:
+  /// - Speed difference must not exceed 18 km/h
+  /// - Reject walking speeds (< 6 km/h) if bus is moving at cruising speed (> 20 km/h)
+  bool get isPassengerSignalReliable {
+    if (_trackingMode != TrackingMode.travelling) return true;
+    final userSpd = effectiveUserSpeedKmh;
+    final busSpd = busSpeedKmh;
+
+    if (busSpd > 20 && userSpd < 6) {
+      return false; // Walking while bus is moving -> reject as unreliable
+    }
+    if ((userSpd - busSpd).abs() > 18) {
+      return false; // Speed mismatch
+    }
+    return true;
+  }
+
+  /// Number of active passengers / contributors establishing current confidence level
+  int get activePassengerContributorsCount {
+    if (_serviceStatus == ServiceStatus.confirmedDisruption) return 0;
+    if (!isPassengerSignalReliable) return 1;
+    if (_trackingMode == TrackingMode.travelling) return 14;
+    if (_trackingSource == TrackingSource.driver || isBackendLive) return 14;
+    return 11;
+  }
+
+  /// Short confidence level label: High, Medium, or Limited
+  String get confidenceLevelLabel {
+    if (_serviceStatus == ServiceStatus.confirmedDisruption) return 'Limited';
+    if (!isPassengerSignalReliable) return 'Limited';
+    if (_trackingSource == TrackingSource.driver || isBackendLive) return 'High';
+    if (_trackingMode == TrackingMode.travelling) return 'High';
+    return 'Medium';
+  }
+
+  /// Tracking confidence representation for UI with number of people verified
+  String get trackingConfidenceText {
+    final count = activePassengerContributorsCount;
+    final label = confidenceLevelLabel;
+    if (_serviceStatus == ServiceStatus.confirmedDisruption) return 'Limited (0 people)';
+    if (!isPassengerSignalReliable) return 'Limited ($count person)';
+    if (_trackingMode == TrackingMode.travelling) {
+      return '$label ($count people on board)';
+    }
+    return '$label ($count people verified)';
+  }
+
+  /// Descriptive text indicating passenger verification consensus
+  String get confidencePeopleDescription {
+    final count = activePassengerContributorsCount;
+    if (count == 0) return 'No live passenger signals';
+    if (count == 1) return '1 active passenger signal';
+    return '$count people verifying this bus';
+  }
+
   /// User location coordinates (falls back to Thane Station if GPS not granted)
   GeoCoord get userLocation {
     if (_userPosition != null) {
@@ -106,6 +257,7 @@ class TransitProvider extends ChangeNotifier {
     if (_serviceStatus == ServiceStatus.confirmedDisruption) return 0.0;
     if (_serviceStatus == ServiceStatus.possibleDisruption) return 4.0;
     if (!_isLiveAvailable) return 0.0;
+    if (_selectedRoute.routeNumber == '65') return 28.0;
     return 32.0; // Typical Thane urban corridor transit cruising speed
   }
 
@@ -141,10 +293,10 @@ class TransitProvider extends ChangeNotifier {
       safeIndex = _coordIndex.clamp(0, polyline.length - 1);
       effectiveSource = TrackingSource.crowd;
     } else {
+      final simPoint = _getSimulatedCoord(polyline);
+      rawLat = simPoint.latitude;
+      rawLon = simPoint.longitude;
       safeIndex = _coordIndex.clamp(0, polyline.length - 1);
-      final rawPoint = polyline[safeIndex];
-      rawLat = rawPoint.latitude;
-      rawLon = rawPoint.longitude;
       effectiveSpeed = busSpeedKmh;
       effectiveSource = _trackingSource;
     }
@@ -257,19 +409,63 @@ class TransitProvider extends ChangeNotifier {
     );
   }
 
+  /// Computes a continuous, smoothly interpolated GPS position along the active polyline.
+  /// This replicates real municipal bus vehicle telemetry advancing gradually at realistic speed (e.g. 28 km/h).
+  GeoCoord _getSimulatedCoord(List<GeoCoord> polyline) {
+    if (polyline.isEmpty) return const GeoCoord(19.1864, 72.9756);
+    if (polyline.length == 1) return polyline.first;
+
+    double accumulated = 0.0;
+    for (int i = 0; i < polyline.length - 1; i++) {
+      final p1 = polyline[i];
+      final p2 = polyline[i + 1];
+      final segDistMeters = RouteMatchingService.distanceKm(
+        p1.latitude,
+        p1.longitude,
+        p2.latitude,
+        p2.longitude,
+      ) * 1000.0;
+
+      if (accumulated + segDistMeters >= _simulatedDistanceMeters) {
+        final remaining = _simulatedDistanceMeters - accumulated;
+        final t = segDistMeters > 0 ? (remaining / segDistMeters).clamp(0.0, 1.0) : 0.0;
+        _coordIndex = i;
+        return GeoCoord(
+          p1.latitude + (p2.latitude - p1.latitude) * t,
+          p1.longitude + (p2.longitude - p1.longitude) * t,
+        );
+      }
+      accumulated += segDistMeters;
+    }
+
+    _coordIndex = polyline.length - 1;
+    return polyline.last;
+  }
+
   void _startTimers() {
     _simulationTimer?.cancel();
-    _simulationTimer = Timer.periodic(const Duration(milliseconds: 3500), (_) {
+    // 1-second ticks for realistic, slow, continuous vehicle movement (~7.7 meters/sec at 28 km/h)
+    _simulationTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) {
       if (!_isSimulating ||
           !_isLiveAvailable ||
           _serviceStatus == ServiceStatus.confirmedDisruption) {
         return;
       }
       final polyline = activePolyline;
-      if (polyline.isEmpty) return;
+      if (polyline.length < 2) return;
 
-      _coordIndex = (_coordIndex + 1) >= polyline.length ? 0 : _coordIndex + 1;
-      _lastUpdatedSec = math.Random().nextInt(5) + 3;
+      final spd = busSpeedKmh;
+      if (spd > 0) {
+        final metersPerSecond = spd * (1000.0 / 3600.0);
+        final totalLengthMeters =
+            RouteMatchingService.calculateTotalLengthKm(polyline) * 1000.0;
+        if (totalLengthMeters > 0) {
+          _simulatedDistanceMeters =
+              (_simulatedDistanceMeters + metersPerSecond) % totalLengthMeters;
+        }
+      }
+
+      _lastUpdatedSec = math.Random().nextInt(3) + 1;
       notifyListeners();
     });
 
@@ -307,6 +503,7 @@ class TransitProvider extends ChangeNotifier {
     if (DemoDataService.allRoutes.containsKey(routeId)) {
       _selectedRoute = DemoDataService.allRoutes[routeId]!;
       _coordIndex = 0;
+      _simulatedDistanceMeters = 200.0;
       notifyListeners();
     }
   }
@@ -338,6 +535,7 @@ class TransitProvider extends ChangeNotifier {
   void triggerDetour(bool active) {
     _serviceStatus = active ? ServiceStatus.detour : ServiceStatus.normal;
     _coordIndex = 0;
+    _simulatedDistanceMeters = 50.0;
     notifyListeners();
   }
 
@@ -349,7 +547,8 @@ class TransitProvider extends ChangeNotifier {
   }
 
   void resetSimulation() {
-    _coordIndex = 17;
+    _coordIndex = 2;
+    _simulatedDistanceMeters = 400.0;
     _serviceStatus = ServiceStatus.normal;
     _isLiveAvailable = true;
     _trackingSource = TrackingSource.crowd;

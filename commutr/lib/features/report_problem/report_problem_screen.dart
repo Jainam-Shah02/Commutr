@@ -134,9 +134,15 @@ class _ReportProblemScreenState extends State<ReportProblemScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    onPressed: () => Navigator.pushReplacementNamed(context, AppRoutes.liveMap),
+                    onPressed: () {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      } else {
+                        Navigator.pushReplacementNamed(context, AppRoutes.busDetails);
+                      }
+                    },
                     child: const Text(
-                      'Back to Live Map',
+                      'Return to Bus Tracking',
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                     ),
                   ),

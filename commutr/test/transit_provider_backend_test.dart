@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:commutr/models/bus_state.dart';
 import 'package:commutr/services/transit_provider.dart';
 import 'package:commutr/services/realtime/transit_realtime_service.dart';
 
@@ -25,7 +26,7 @@ void main() {
       // Bus state operates normally via Demo fallback (never null when isLiveAvailable is true)
       final bus = provider.busState;
       expect(bus, isNotNull);
-      expect(bus!.routeNumber, '50');
+      expect(bus!.routeNumber, '65');
       expect(bus.latitude, isNotNull);
       expect(bus.longitude, isNotNull);
 
@@ -40,6 +41,31 @@ void main() {
       final bus = provider.busState;
       expect(bus, isNotNull);
       expect(bus!.routeNumber, '2');
+
+      provider.dispose();
+    });
+
+    test('Passenger issue report transitions serviceStatus to possibleDisruption and slows bus speed', () {
+      final provider = TransitProvider();
+      expect(provider.serviceStatus, ServiceStatus.normal);
+      expect(provider.busSpeedKmh, 28.0);
+
+      provider.reportPassengerProblem('blocked');
+      expect(provider.serviceStatus, ServiceStatus.possibleDisruption);
+      expect(provider.busSpeedKmh, 4.0); // Crawling speed during suspected obstruction
+
+      provider.dispose();
+    });
+
+    test('Confidence level displays active passenger contributor count', () {
+      final provider = TransitProvider();
+      expect(provider.activePassengerContributorsCount, greaterThan(0));
+      expect(provider.confidenceLevelLabel, 'Medium');
+      expect(provider.trackingConfidenceText, contains('people'));
+
+      provider.setTrackingMode(TrackingMode.travelling);
+      expect(provider.confidenceLevelLabel, 'High');
+      expect(provider.trackingConfidenceText, contains('14 people on board'));
 
       provider.dispose();
     });
